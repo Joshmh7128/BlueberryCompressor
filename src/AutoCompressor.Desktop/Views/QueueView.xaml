@@ -1,0 +1,165 @@
+<UserControl x:Class="AutoCompressor.Desktop.Views.QueueView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:AutoCompressor.Desktop.Controls">
+    <Grid Margin="16,12,16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="140" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="230" MinHeight="110" />
+        </Grid.RowDefinitions>
+
+        <!-- Controls -->
+        <DockPanel LastChildFill="False">
+            <Button Command="{Binding StartCommand}" Style="{DynamicResource AccentButtonStyle}" Margin="0,0,8,0" MinWidth="92"
+                    Content="Start" Tag="&#xE768;" ContentTemplate="{StaticResource IconLabel}" />
+            <Button Command="{Binding PauseCommand}" Margin="0,0,8,0" MinWidth="96"
+                    Content="{Binding PauseLabel}" Tag="&#xE769;" ContentTemplate="{StaticResource IconLabel}"
+                    ToolTip="Freeze the encoder where it is; resuming carries on from the same frame" />
+            <Button Command="{Binding StopCommand}" Margin="0,0,8,0" Content="Stop" Tag="&#xE71A;" ContentTemplate="{StaticResource IconLabel}"
+                    ToolTip="Stop now. The file in progress starts over next time." />
+            <Button Command="{Binding FinishCurrentCommand}" Content="Stop after this file" ToolTip="Let the file in progress finish, then stop" />
+
+            <Button DockPanel.Dock="Right" Command="{Binding ClearFinishedCommand}" Content="Clear finished" Margin="8,0,0,0" />
+            <Button DockPanel.Dock="Right" Command="{Binding RetryCommand}" Content="Retry" Margin="8,0,0,0" ToolTip="Put failed or skipped files back in line" />
+            <Button DockPanel.Dock="Right" Command="{Binding RemoveCommand}" Content="Remove" Margin="8,0,0,0" ToolTip="Take the selected files out of the queue" />
+            <Button DockPanel.Dock="Right" Command="{Binding MoveDownCommand}" Margin="8,0,0,0" ToolTip="Move down"
+                    Content="&#xE74B;" ContentTemplate="{StaticResource IconOnly}" />
+            <Button DockPanel.Dock="Right" Command="{Binding MoveUpCommand}" Margin="8,0,0,0" ToolTip="Move up"
+                    Content="&#xE74A;" ContentTemplate="{StaticResource IconOnly}" />
+        </DockPanel>
+
+        <!-- Overall progress -->
+        <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}" Padding="16,11" Margin="0,12,0,8">
+            <DockPanel>
+                <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding TotalsText}" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="16,0,0,0" />
+                <c:Bar Height="6" Margin="16,1,0,0" VerticalAlignment="Center" Track="{StaticResource Track}" Fill="{StaticResource Accent}"
+                       Fraction="{Binding OverallProgress, Converter={StaticResource PercentToFraction}}" />
+            </DockPanel>
+        </Border>
+
+        <DataGrid x:Name="JobsGrid" Grid.Row="2" Style="{StaticResource Grid}" ItemsSource="{Binding Rows}" CanUserSortColumns="False"
+                  SelectionChanged="JobsGrid_SelectionChanged">
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Move up" Command="{Binding MoveUpCommand}" />
+                    <MenuItem Header="Move down" Command="{Binding MoveDownCommand}" />
+                    <MenuItem Header="Retry" Command="{Binding RetryCommand}" />
+                    <Separator />
+                    <MenuItem Header="Show in Explorer" Command="{Binding ShowOutputCommand}" />
+                    <MenuItem Header="Open log" Command="{Binding OpenLogCommand}" />
+                    <Separator />
+                    <MenuItem Header="Remove from queue" Command="{Binding RemoveCommand}" />
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="File" Width="*" MinWidth="240">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" ToolTip="{Binding Job.SourcePath}" Style="{StaticResource CellText}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Type" Width="124">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="10" Padding="9,2,9,3" VerticalAlignment="Center" HorizontalAlignment="Left"
+                                    Background="{Binding Type, Converter={StaticResource TypeBrush}, ConverterParameter=fill}">
+                                <TextBlock Text="{Binding TypeText}" FontSize="12" Foreground="{Binding Type, Converter={StaticResource TypeBrush}}" />
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Profile" Binding="{Binding ProfileName}" Width="142" ElementStyle="{StaticResource CellText}" />
+                <DataGridTextColumn Header="Output" Binding="{Binding OutputModeText}" Width="118" ElementStyle="{StaticResource CellTextMuted}" />
+                <DataGridTemplateColumn Header="Status" Width="128">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StatusText}" ToolTip="{Binding Message}" Style="{StaticResource CellText}"
+                                       Foreground="{Binding Status, Converter={StaticResource StateBrush}}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Progress" Width="156">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid Visibility="{Binding ShowProgress, Converter={StaticResource VisibleWhen}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="52" />
+                                </Grid.ColumnDefinitions>
+                                <c:Bar Height="6" VerticalAlignment="Center" Track="{StaticResource Track}" Fill="{StaticResource Accent}"
+                                       Fraction="{Binding Progress, Converter={StaticResource PercentToFraction}}" />
+                                <TextBlock Grid.Column="1" Text="{Binding ProgressText}" Style="{StaticResource CellTextRight}" FontSize="12" />
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Speed" Binding="{Binding SpeedText}" Width="112" ElementStyle="{StaticResource CellTextMuted}" />
+                <DataGridTextColumn Header="Time left" Binding="{Binding EtaText}" Width="78" ElementStyle="{StaticResource CellTextRight}"
+                                    HeaderStyle="{StaticResource GridHeaderRight}" />
+                <DataGridTextColumn Header="Original" Binding="{Binding SourceSizeText}" Width="84" ElementStyle="{StaticResource CellTextRight}"
+                                    HeaderStyle="{StaticResource GridHeaderRight}" />
+                <DataGridTextColumn Header="Result" Binding="{Binding OutputSizeText}" Width="84" ElementStyle="{StaticResource CellTextRight}"
+                                    HeaderStyle="{StaticResource GridHeaderRight}" />
+                <DataGridTemplateColumn Header="Saved" Width="66" HeaderStyle="{StaticResource GridHeaderRight}">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding SavedText}" Style="{StaticResource CellTextRight}" Foreground="{StaticResource Good}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="{Binding IsEmpty, Converter={StaticResource VisibleWhen}}">
+            <TextBlock Text="&#xE8FD;" FontFamily="{StaticResource Icons}" FontSize="40" Foreground="{StaticResource TextFaint}" HorizontalAlignment="Center" />
+            <TextBlock Text="Nothing queued yet" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,4" />
+            <TextBlock Style="{StaticResource Muted}" TextAlignment="Center" MaxWidth="440" TextWrapping="Wrap"
+                       Text="Select files or folders in the Library and add them here. The queue is kept between sessions, and more can be added while it runs." />
+        </StackPanel>
+
+        <GridSplitter Grid.Row="3" Height="9" HorizontalAlignment="Stretch" Background="Transparent" ResizeDirection="Rows" />
+
+        <!-- Details of the selected job -->
+        <Border Grid.Row="4" Style="{StaticResource CardBorderStyle}" Padding="18,14">
+            <Grid>
+                <TextBlock Text="Select a job to see what was decided for it and how it went." Style="{StaticResource Muted}"
+                           Visibility="{Binding HasCurrent, Converter={StaticResource VisibleWhen}, ConverterParameter=not}" />
+                <DockPanel Visibility="{Binding HasCurrent, Converter={StaticResource VisibleWhen}}">
+                    <StackPanel DockPanel.Dock="Right" Margin="16,0,0,0">
+                        <Button Command="{Binding ShowOutputCommand}" Content="Show in Explorer" Margin="0,0,0,8" HorizontalAlignment="Stretch" />
+                        <Button Command="{Binding OpenLogCommand}" Content="Open log" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel DataContext="{Binding Current}">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Folder}" Style="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,8" />
+                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Foreground="{Binding Status, Converter={StaticResource StateBrush}}"
+                                       Visibility="{Binding Message, Converter={StaticResource VisibleWhen}}" />
+                            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,6"
+                                       Visibility="{Binding Summary, Converter={StaticResource VisibleWhen}}" />
+                            <ItemsControl ItemsSource="{Binding Notes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}" Margin="0,0,0,3" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding OutputPath, StringFormat='Saved as {0}'}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMuted}"
+                                       Visibility="{Binding OutputPath, Converter={StaticResource VisibleWhen}}" />
+                            <Expander Header="ffmpeg command" Margin="0,6,0,0" Visibility="{Binding Command, Converter={StaticResource VisibleWhen}}">
+                                <TextBox Text="{Binding Command, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" FontSize="11"
+                                         BorderThickness="0" Background="Transparent" Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

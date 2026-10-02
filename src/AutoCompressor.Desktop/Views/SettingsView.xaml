@@ -1,0 +1,225 @@
+<UserControl x:Class="AutoCompressor.Desktop.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,12,16,20" MaxWidth="980" HorizontalAlignment="Left">
+
+            <!-- Output -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Where compressed files go" Style="{StaticResource SectionTitle}" />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Output">
+                        <ComboBox ItemsSource="{Binding OutputModes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding OutputMode}" Width="420" />
+                    </HeaderedContentControl>
+
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Name suffix" Tag="{Binding SuffixExample}"
+                                            Visibility="{Binding IsNextTo, Converter={StaticResource VisibleWhen}}">
+                        <TextBox Text="{Binding Suffix, UpdateSourceTrigger=PropertyChanged}" Width="200" />
+                    </HeaderedContentControl>
+
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Output folder" Tag="Subfolders of what you scanned are recreated inside it."
+                                            Visibility="{Binding IsOutputFolder, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding OutputFolder}" Width="420" />
+                            <Button Content="Browse…" Click="BrowseOutput_Click" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+
+                    <StackPanel Visibility="{Binding IsReplace, Converter={StaticResource VisibleWhen}}">
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="What happens to the original" Tag="{Binding DisposalNote}">
+                            <ComboBox ItemsSource="{Binding Disposals}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Disposal}" Width="420" />
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="Backup folder"
+                                                Visibility="{Binding IsBackupFolder, Converter={StaticResource VisibleWhen}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox Text="{Binding BackupFolder}" Width="420" />
+                                <Button Content="Browse…" Click="BrowseBackup_Click" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </HeaderedContentControl>
+                        <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="12,9" Margin="190,0,0,12">
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="The original is only touched after its replacement has been fully encoded and checked: it must be readable, the same length, and have every video, audio and subtitle track that was planned." />
+                        </Border>
+                    </StackPanel>
+
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Minimum saving (%)"
+                                            Tag="If the result is not at least this much smaller, it is discarded and the original is left exactly as it was.">
+                        <TextBox Text="{Binding MinSavingsPercent}" Width="70" />
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="File dates" Margin="0">
+                        <CheckBox Content="Give the compressed file the original's modified date" IsChecked="{Binding PreserveTimestamps}" />
+                    </HeaderedContentControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Encoders -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Encoding" Style="{StaticResource SectionTitle}" />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Encoder" Tag="Profiles can override this individually.">
+                        <ComboBox ItemsSource="{Binding EncoderPolicies}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding EncoderPolicy}" Width="420" />
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Preferred GPU" Tag="{Binding HardwareSummary}">
+                        <ComboBox ItemsSource="{Binding Vendors}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding HardwareVendor}" Width="220" />
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Hardware options">
+                        <StackPanel>
+                            <CheckBox Content="If a hardware encoder fails on a file, retry it with the software encoder" IsChecked="{Binding FallbackToSoftware}" />
+                            <CheckBox Content="Also decode on the GPU where possible" IsChecked="{Binding HardwareDecode}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Files at once"
+                                            Tag="One is right for software encoding, which already uses every core. A GPU can usually handle two or three.">
+                        <ComboBox ItemsSource="{Binding ParallelChoices}" SelectedItem="{Binding ParallelJobs}" Width="90" />
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="While running">
+                        <StackPanel>
+                            <CheckBox Content="Run encoders at low priority so the PC stays responsive" IsChecked="{Binding LowPriority}" />
+                            <CheckBox Content="Keep the PC awake until the queue is finished" IsChecked="{Binding KeepAwake}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Special cases">
+                        <StackPanel>
+                            <CheckBox Content="Leave Dolby Vision files alone (re-encoding drops the Dolby Vision layer)" IsChecked="{Binding SkipDolbyVision}" />
+                            <CheckBox Content="Allow files this app already compressed to be compressed again" IsChecked="{Binding ReprocessCompressed}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Encoders on this PC" Margin="0">
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding Encoders}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16" />
+                                                <ColumnDefinition Width="230" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Ellipse Width="7" Height="7" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Setter Property="Fill" Value="{StaticResource TextFaint}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Usable}" Value="True">
+                                                                <Setter Property="Fill" Value="{StaticResource Good}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="12" Foreground="{StaticResource TextMuted}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Check again" Command="{Binding RedetectCommand}" />
+                                <TextBlock Text="{Binding DetectStatus}" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </HeaderedContentControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Schedule -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Schedule" Style="{StaticResource SectionTitle}" />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Quiet hours" Margin="0"
+                                            Tag="With the queue started, new files only begin inside this window, for example overnight. A file already encoding is allowed to finish.">
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox Content="Only start files between" IsChecked="{Binding ScheduleEnabled}" VerticalAlignment="Center" />
+                            <TextBox Text="{Binding ScheduleStart}" Width="70" Margin="10,0,0,0" IsEnabled="{Binding ScheduleEnabled}" />
+                            <TextBlock Text="and" VerticalAlignment="Center" Margin="10,0" />
+                            <TextBox Text="{Binding ScheduleEnd}" Width="70" IsEnabled="{Binding ScheduleEnabled}" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Recognition -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Recognising content" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,14"
+                               Text="Files are always recognised locally from their names, folders, tracks and length, and from a built-in list of well-known titles. Looking titles up online catches everything else." />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Online lookup"
+                                            Tag="Sends only the show or film title parsed from the file name to tvmaze.com (series, no account needed) and, if a key is entered below, themoviedb.org (films). Answers are remembered, so each title is asked once. Takes effect on the next scan.">
+                        <CheckBox Content="Look up titles online to identify genre and type" IsChecked="{Binding OnlineLookup}" />
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="TMDB API key (optional)" Margin="0"
+                                            Tag="Needed only for films. A key is free from themoviedb.org; either the v3 key or the read access token works.">
+                        <TextBox Text="{Binding TmdbApiKey}" Width="420" />
+                    </HeaderedContentControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Subtitles -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Missing subtitles" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,14"
+                               Text="Subtitles already in a file are always carried over in their original format; that is set per profile. This is about finding subtitles a file does not have." />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="Download">
+                        <CheckBox Content="Look for missing subtitles online when a file is compressed" IsChecked="{Binding SubtitleFetch}" />
+                    </HeaderedContentControl>
+                    <StackPanel IsEnabled="{Binding SubtitleFetch}">
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="Languages" Tag="{Binding SubtitleLanguagesRead}">
+                            <TextBox Text="{Binding SubtitleLanguages, UpdateSourceTrigger=PropertyChanged}" Width="200" />
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="What to do with them">
+                            <ComboBox ItemsSource="{Binding Deliveries}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SubtitleDelivery}" Width="420" />
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="Gestdown"
+                                                Tag="An open-source service over the Addic7ed community database. TV episodes only; no account needed.">
+                            <CheckBox Content="Use Gestdown" IsChecked="{Binding UseGestdown}" />
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Style="{StaticResource Field}" Header="OpenSubtitles"
+                                                Tag="Films and series, matched to your exact file where possible. Needs a free account and API key from opensubtitles.com (Profile → API consumers). The free tier allows a limited number of downloads per day.">
+                            <CheckBox Content="Use OpenSubtitles.com" IsChecked="{Binding UseOpenSubtitles}" />
+                        </HeaderedContentControl>
+                        <StackPanel IsEnabled="{Binding UseOpenSubtitles}">
+                            <HeaderedContentControl Style="{StaticResource Field}" Header="API key">
+                                <TextBox Text="{Binding OpenSubtitlesApiKey}" Width="420" />
+                            </HeaderedContentControl>
+                            <HeaderedContentControl Style="{StaticResource Field}" Header="User name">
+                                <TextBox Text="{Binding OpenSubtitlesUser}" Width="260" />
+                            </HeaderedContentControl>
+                            <HeaderedContentControl Style="{StaticResource Field}" Header="Password" Margin="0"
+                                                    Tag="Stored encrypted for your Windows account. Leave empty to keep the saved one.">
+                                <StackPanel Orientation="Horizontal">
+                                    <PasswordBox x:Name="PasswordBox" Width="260" LostFocus="Password_LostFocus" />
+                                    <TextBlock Text="A password is saved" Foreground="{StaticResource Good}" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="12"
+                                               Visibility="{Binding HasOpenSubtitlesPassword, Converter={StaticResource VisibleWhen}}" />
+                                </StackPanel>
+                            </HeaderedContentControl>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Tools -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="ffmpeg" Style="{StaticResource SectionTitle}" />
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="ffmpeg.exe" Tag="{Binding ToolsStatus}"
+                                            ToolTip="Leave empty to find ffmpeg automatically. ffprobe.exe is expected in the same folder.">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding FfmpegPath}" Width="420" />
+                            <Button Content="Browse…" Click="BrowseFfmpeg_Click" Margin="8,0,0,0" />
+                            <Button Content="Find automatically" Command="{Binding AutoLocateCommand}" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+                    <HeaderedContentControl Style="{StaticResource Field}" Header="App data" Tag="{Binding HistorySummary}" Margin="0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding DataFolder}" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                            <Button Content="Open folder" Command="{Binding OpenDataFolderCommand}" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </HeaderedContentControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
