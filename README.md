@@ -1,4 +1,4 @@
-# AutoCompressor
+# BlueberryCompressor
 
 A Windows desktop app that finds the video and audio files eating your disk, works out what each one is,
 and compresses it with settings suited to that kind of content. It drives **ffmpeg**; everything else is
