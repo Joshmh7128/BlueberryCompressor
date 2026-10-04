@@ -665,6 +665,7 @@ public static class CommandBuilder
         args.AddRange(["-map_chapters", p.KeepChapters ? "0" : "-1"]);
         AddMarker(args, p, probe, mp4: container == "m4a");
         if (container == "m4a") args.AddRange(["-movflags", "+faststart"]);
+        if (container == "mp3") args.AddRange(["-id3v2_version", "3"]); // the tag version older players and cars read
         AddExtraArgs(args, p.ExtraArgs);
 
         string muxer = container switch { "m4a" => "ipod", "mka" => "matroska", "opus" => "opus", _ => container };

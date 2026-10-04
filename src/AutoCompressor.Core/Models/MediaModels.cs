@@ -185,6 +185,10 @@ public sealed class MediaFile
     public ParsedName Parsed { get; set; } = new();
     public Classification Classification { get; set; } = new();
     public FolderNode? Folder { get; set; }
+    /// <summary>Predicted size after compression with the assigned profile; null when it would be skipped.</summary>
+    public long? EstimatedSize { get; set; }
+    /// <summary>True when the estimate comes from test-encoding samples rather than the rule of thumb.</summary>
+    public bool EstimateMeasured { get; set; }
 
     public string Name => System.IO.Path.GetFileName(Path);
     public string Directory => System.IO.Path.GetDirectoryName(Path) ?? "";

@@ -16,11 +16,16 @@ native .NET (WPF), with no third-party packages.
   static, talk-heavy shows are reduced hard (720p, 30 fps, low quality target); concerts keep their audio untouched.
 - **Carries subtitles over in their original format** (ASS stays ASS, SRT stays SRT, PGS stays PGS), with fonts, chapters and track
   languages. Where a container cannot hold a format, the track is written beside the file in its original format.
+- **Estimates the size after compression** for every file and folder (the "After (est.)" column), from the profile's
+  quality target, resolution, frame rate and content type. It is a rule of thumb; for one file, **Measure** test-encodes
+  a few short samples with the exact settings and gives a far more reliable figure.
 - **Queue** like HandBrake's: add files or whole folders, reorder, pause, stop, resume next session. Optional
   quiet-hours schedule and parallel jobs.
 - **Software and hardware encoders**: x264, x265, SVT-AV1/libaom, NVIDIA NVENC, AMD AMF, Intel Quick Sync, detected by
   actually test-running each one.
 - **Replace** the original, save **next to** it, or write to a **separate folder**.
+- **Swap in compressed copies later**: after compressing next to the originals and checking the results, one button on
+  the Queue tab removes the originals and renames each copy to the original's name.
 - **Fetches missing subtitles** from open databases (Gestdown, OpenSubtitles) when asked to.
 
 ## Running it
@@ -71,6 +76,9 @@ You can always override the type or profile of any selection, and the choice is 
 | AV1 | AV1 10-bit | Opus | Smallest, slow in software (not auto-assigned) |
 | Music | AAC `.m4a`; lossless sources become FLAC | | Keeps cover art |
 | Music (Opus) | Opus `.opus` | | Smallest (no cover art) |
+| Music (AAC 256), (Opus 192) | Higher-quality lossy from lossless sources | | Not auto-assigned |
+| Music (MP3 320), (MP3 192) | MP3 `.mp3` with cover art and tags | | Plays on everything; not auto-assigned |
+| Music (FLAC) | Lossless only: WAV/AIFF/ALAC to FLAC | | Not auto-assigned |
 | Speech | Opus mono 40k | | Podcasts, audiobooks |
 
 Every value is editable on the Profiles tab: container, codec, encoder kind, rate control, quality, bitrate and ceiling,

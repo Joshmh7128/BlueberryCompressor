@@ -42,6 +42,23 @@ public sealed class LibraryRow : ObservableObject
     // ---- size ----
     public long Size => File?.Size ?? Folder!.MediaSize;
     public string SizeText => Format.Bytes(Size);
+
+    /// <summary>Size after compression: the file's estimate, or for a folder the sum over everything inside (unchanged files count as they are).</summary>
+    public long EstimatedSize => File is not null ? File.EstimatedSize ?? File.Size : Folder!.AllFiles().Sum(f => f.EstimatedSize ?? f.Size);
+    public bool HasEstimate => File is not null ? File.EstimatedSize is not null : EstimatedSize < Size;
+    public string EstimateText => !HasEstimate ? "" : (File is { EstimateMeasured: true } ? "" : "~") + Format.Bytes(EstimatedSize);
+    public string EstimateTip
+    {
+        get
+        {
+            if (!HasEstimate) return IsFolder ? "Nothing in this folder would be compressed." : "This file would not be compressed.";
+            long size = Size, estimate = EstimatedSize;
+            string saving = size > 0 ? $"{Format.Bytes(size - estimate)} smaller ({(1 - (double)estimate / size) * 100:0}%)" : "";
+            return File is { EstimateMeasured: true }
+                ? $"{saving}\nMeasured by test-encoding samples of this file."
+                : $"{saving}\nA rough estimate from the profile's quality target, resolution, frame rate and content type.\nSelect one file and use \"Measure\" for a figure based on test encodes.";
+        }
+    }
     /// <summary>How long this row's bar is, relative to the largest thing in view.</summary>
     public double SizeFraction
     {

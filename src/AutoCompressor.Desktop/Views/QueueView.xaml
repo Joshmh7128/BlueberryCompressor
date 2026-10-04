@@ -35,6 +35,9 @@
         <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}" Padding="16,11" Margin="0,12,0,8">
             <DockPanel>
                 <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <Button DockPanel.Dock="Right" Command="{Binding CleanupCommand}" Content="{Binding CleanupLabel}" Margin="16,-4,0,-4" Padding="12,4"
+                        Visibility="{Binding CleanupCount, Converter={StaticResource VisibleWhen}}"
+                        ToolTip="Remove the originals that still sit beside their compressed copies, and rename each copy to the original's name" />
                 <TextBlock DockPanel.Dock="Right" Text="{Binding TotalsText}" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="16,0,0,0" />
                 <c:Bar Height="6" Margin="16,1,0,0" VerticalAlignment="Center" Track="{StaticResource Track}" Fill="{StaticResource Accent}"
                        Fraction="{Binding OverallProgress, Converter={StaticResource PercentToFraction}}" />
@@ -74,7 +77,23 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Profile" Binding="{Binding ProfileName}" Width="142" ElementStyle="{StaticResource CellText}" />
-                <DataGridTextColumn Header="Output" Binding="{Binding OutputModeText}" Width="118" ElementStyle="{StaticResource CellTextMuted}" />
+                <DataGridTemplateColumn Header="Output" Width="118">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding OutputModeText}" ToolTip="{Binding OutputDetail}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource CellTextMuted}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ReplacesOriginal}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource Warn}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="Status" Width="128">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -130,14 +149,19 @@
                 <TextBlock Text="Select a job to see what was decided for it and how it went." Style="{StaticResource Muted}"
                            Visibility="{Binding HasCurrent, Converter={StaticResource VisibleWhen}, ConverterParameter=not}" />
                 <DockPanel Visibility="{Binding HasCurrent, Converter={StaticResource VisibleWhen}}">
-                    <StackPanel DockPanel.Dock="Right" Margin="16,0,0,0">
+                    <StackPanel DockPanel.Dock="Right" Margin="16,0,0,0" Width="230">
+                        <TextBlock Text="PROFILE" Style="{StaticResource Caption}" />
+                        <ComboBox x:Name="ProfileCombo" ItemsSource="{Binding ProfileChoices}" SelectedItem="{Binding SelectedProfile}" DisplayMemberPath="Name"
+                                  HorizontalAlignment="Stretch" IsEnabled="{Binding CanChangeProfile}" Margin="0,0,0,12"
+                                  ToolTip="Change the profile of the selected waiting jobs. Jobs that are encoding or already done keep theirs." />
                         <Button Command="{Binding ShowOutputCommand}" Content="Show in Explorer" Margin="0,0,0,8" HorizontalAlignment="Stretch" />
                         <Button Command="{Binding OpenLogCommand}" Content="Open log" HorizontalAlignment="Stretch" />
                     </StackPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel DataContext="{Binding Current}">
                             <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Folder}" Style="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,8" />
+                            <TextBlock Text="{Binding Folder}" Style="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,4" />
+                            <TextBlock Text="{Binding OutputDetail}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8" />
                             <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,0,0,6"
                                        Foreground="{Binding Status, Converter={StaticResource StateBrush}}"
                                        Visibility="{Binding Message, Converter={StaticResource VisibleWhen}}" />

@@ -23,6 +23,11 @@ public static class BuiltInProfiles
     public const string Av1Archive = "av1-archive";
     public const string Music = "music";
     public const string MusicOpus = "music-opus";
+    public const string MusicAacHigh = "music-aac-256";
+    public const string MusicOpusHigh = "music-opus-192";
+    public const string MusicMp3High = "music-mp3-320";
+    public const string MusicMp3 = "music-mp3-192";
+    public const string MusicFlac = "music-flac";
     public const string Speech = "speech";
 
     public static readonly IReadOnlyDictionary<ContentType, string> DefaultMap = new Dictionary<ContentType, string>
@@ -150,6 +155,45 @@ public static class BuiltInProfiles
                           ".opus files.",
             Container = "opus", AudioCodec = AudioCodec.Opus, StereoKbps = 128, MonoKbps = 72, MaxChannels = 2,
             LosslessSource = LosslessSourcePolicy.Transcode, SkipBelowKbps = 170, CopyEfficientAudio = false,
+        },
+        new Profile
+        {
+            Id = MusicAacHigh, Name = "Music (AAC 256, high quality)", BuiltIn = true, Kind = MediaKind.Audio,
+            Description = "AAC at 256 kbps for lossless sources you want smaller but indistinguishable on any player. " +
+                          "Lossy files are left alone: re-encoding them at this rate would save nothing.",
+            Container = "m4a", AudioCodec = AudioCodec.Aac, StereoKbps = 256, MonoKbps = 128, MaxChannels = 2,
+            LosslessSource = LosslessSourcePolicy.Transcode, SkipBelowKbps = 320, CopyEfficientAudio = false,
+        },
+        new Profile
+        {
+            Id = MusicOpusHigh, Name = "Music (Opus 192, high quality)", BuiltIn = true, Kind = MediaKind.Audio,
+            Description = "Opus at 192 kbps: transparent for practically all music at about a fifth of the size of FLAC. " +
+                          "Cover art is not carried into .opus files.",
+            Container = "opus", AudioCodec = AudioCodec.Opus, StereoKbps = 192, MonoKbps = 96, MaxChannels = 2,
+            LosslessSource = LosslessSourcePolicy.Transcode, SkipBelowKbps = 256, CopyEfficientAudio = false,
+        },
+        new Profile
+        {
+            Id = MusicMp3High, Name = "Music (MP3 320)", BuiltIn = true, Kind = MediaKind.Audio,
+            Description = "MP3 at 320 kbps, the highest MP3 offers and playable on everything, cars and old players included. " +
+                          "Meant for lossless sources; files that are already lossy are left alone. Cover art and tags are kept.",
+            Container = "mp3", AudioCodec = AudioCodec.Mp3, StereoKbps = 320, MonoKbps = 160, MaxChannels = 2,
+            LosslessSource = LosslessSourcePolicy.Transcode, SkipBelowKbps = 100000, CopyEfficientAudio = false,
+        },
+        new Profile
+        {
+            Id = MusicMp3, Name = "Music (MP3 192)", BuiltIn = true, Kind = MediaKind.Audio,
+            Description = "MP3 at 192 kbps: a small, universally playable file. Also shrinks high-bitrate lossy files.",
+            Container = "mp3", AudioCodec = AudioCodec.Mp3, StereoKbps = 192, MonoKbps = 96, MaxChannels = 2,
+            LosslessSource = LosslessSourcePolicy.Transcode, SkipBelowKbps = 256, CopyEfficientAudio = false,
+        },
+        new Profile
+        {
+            Id = MusicFlac, Name = "Music (FLAC, lossless only)", BuiltIn = true, Kind = MediaKind.Audio,
+            Description = "No quality is lost: WAV, AIFF, ALAC and similar become FLAC at its strongest compression. " +
+                          "Files that are already FLAC or lossy are left alone.",
+            Container = "flac", AudioCodec = AudioCodec.Flac, MaxChannels = 0,
+            LosslessSource = LosslessSourcePolicy.KeepLossless, SkipBelowKbps = 0, CopyEfficientAudio = false,
         },
         new Profile
         {

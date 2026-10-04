@@ -31,6 +31,7 @@ public partial class MainWindow : Window
             MessageBox.Show(this, text, title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
         _vm.Library.Confirm = Ask;
         _vm.Queue.Confirm = Ask;
+        _vm.Queue.Inform = (title, text) => MessageBox.Show(this, text, title, MessageBoxButton.OK, MessageBoxImage.Information);
         _vm.Profiles.Confirm = Ask;
         _vm.Library.Alert = (title, text) => MessageBox.Show(this, text, title, MessageBoxButton.OK, MessageBoxImage.Warning);
 
@@ -45,7 +46,7 @@ public partial class MainWindow : Window
         if (SelfTestFile is not null)
         {
             await detect;
-            int failed = await new UiSelfTest(_vm, Dispatcher, StartupScanPath ?? "").RunAsync(SelfTestFile);
+            int failed = await new UiSelfTest(_vm, Dispatcher, StartupScanPath ?? "", LibraryView, QueueView).RunAsync(SelfTestFile);
             _closing = true;
             await _vm.Services.Queue.ShutdownAsync();
             Application.Current.Shutdown(failed == 0 ? 0 : 1);
@@ -99,7 +100,9 @@ public partial class MainWindow : Window
         if (_vm.Profiles.IsDirty) _vm.Profiles.Save();
         await queue.ShutdownAsync();
         _vm.Library.SaveCaches();
-        Close();
+        // With nothing running the awaits above finish at once and we are still inside this very
+        // closing call, where WPF forbids Close(). Post it so it runs after this one has returned.
+        _ = Dispatcher.InvokeAsync(Close);
     }
 
     // ------------------------------------------------------------------ screenshots (for documentation and testing)

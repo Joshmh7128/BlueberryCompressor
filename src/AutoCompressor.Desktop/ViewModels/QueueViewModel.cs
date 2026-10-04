@@ -40,6 +40,20 @@ public sealed class JobRow(QueueJob job) : ObservableObject
 
     public string EtaText => Job.Status == JobStatus.Running && Job.Eta is { } eta && !Job.Paused ? Format.Duration(Math.Max(1, eta.TotalSeconds)) : "";
 
+    public bool ReplacesOriginal => Job.Output.Mode == OutputMode.Replace;
+    /// <summary>The full story of where the result goes and what becomes of the original.</summary>
+    public string OutputDetail => Job.Output.Mode switch
+    {
+        OutputMode.Replace => "Replaces the original; the original is " + Job.Output.Disposal switch
+        {
+            OriginalDisposal.RecycleBin => "moved to the Recycle Bin.",
+            OriginalDisposal.BackupFolder => $"moved to {Job.Output.BackupFolder}.",
+            _ => "permanently deleted.",
+        },
+        OutputMode.OutputFolder => $"Saved to {Job.Output.OutputFolder}; the original is kept.",
+        _ => $"Saved beside the original as \"name{(string.IsNullOrWhiteSpace(Job.Output.Suffix) ? ".compressed" : Job.Output.Suffix)}.ext\"; the original is kept.",
+    };
+
     public string OutputModeText => Job.Output.Mode switch
     {
         OutputMode.Replace => "Replace",
@@ -90,6 +104,11 @@ public sealed class QueueViewModel : ObservableObject
     public ICommand ClearFinishedCommand { get; }
     public ICommand ShowOutputCommand { get; }
     public ICommand OpenLogCommand { get; }
+    public ICommand CleanupCommand { get; }
+    public Action<string, string> Inform { get; set; } = (_, _) => { };
+    /// <summary>Called after originals were swapped out, so other views can catch up with the renamed files.</summary>
+    public Action? AfterCleanup { get; set; }
+    private bool _cleaning;
 
     public Func<string, string, bool> Confirm { get; set; } = (_, _) => true;
 
@@ -115,10 +134,12 @@ public sealed class QueueViewModel : ObservableObject
         ClearFinishedCommand = new RelayCommand(queue.ClearFinished, () => Rows.Any(r => r.Job.IsFinished));
         ShowOutputCommand = new RelayCommand(ShowOutput, () => _current is not null);
         OpenLogCommand = new RelayCommand(OpenLog, () => _current is { LogPath.Length: > 0 });
+        CleanupCommand = new RelayCommand(async () => await CleanupAsync(), () => !_cleaning && !queue.IsActive && CleanupCount > 0);
 
         queue.ListChanged += () => _ui.InvokeAsync(SyncRows);
         queue.JobChanged += job => _ui.InvokeAsync(() => OnJobChanged(job), DispatcherPriority.Background);
-        queue.JobFinished += _ => _ui.InvokeAsync(UpdateTotals);
+        queue.JobFinished += _ => _ui.InvokeAsync(() => { UpdateTotals(); RefreshCleanup(); });
+        RefreshCleanup();
         queue.StateChanged += () => _ui.InvokeAsync(() =>
         {
             UpdateTotals();
@@ -147,7 +168,11 @@ public sealed class QueueViewModel : ObservableObject
 
     private void OnJobChanged(QueueJob job)
     {
-        if (_rowsById.TryGetValue(job.Id, out var row)) row.Refresh();
+        if (_rowsById.TryGetValue(job.Id, out var row))
+        {
+            row.Refresh();
+            if (_selection.Contains(row)) Raise(nameof(CanChangeProfile));
+        }
         UpdateTotals();
     }
 
@@ -155,6 +180,7 @@ public sealed class QueueViewModel : ObservableObject
     {
         _selection = rows.ToList();
         Current = _selection.FirstOrDefault();
+        RefreshProfileChoice();
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -165,6 +191,51 @@ public sealed class QueueViewModel : ObservableObject
         private set { if (Set(ref _current, value)) Raise(nameof(HasCurrent)); }
     }
     public bool HasCurrent => _current is not null;
+
+    // ------------------------------------------------------------------ changing the profile of waiting jobs
+
+    private bool _settingProfile;
+    public IReadOnlyList<Profile> ProfileChoices { get; private set; } = [];
+
+    /// <summary>Jobs that are encoding or finished keep the profile they ran with.</summary>
+    public bool CanChangeProfile => _selection.Count > 0 && _selection.Select(r => r.Job.Kind).Distinct().Count() == 1
+                                    && _selection.All(r => r.Status is not (JobStatus.Running or JobStatus.Completed));
+
+    public Profile? SelectedProfile
+    {
+        get
+        {
+            var ids = _selection.Select(r => r.Job.Profile.Id).Distinct().Take(2).ToList();
+            return ids.Count == 1 ? ProfileChoices.FirstOrDefault(p => p.Id == ids[0]) : null;
+        }
+        set
+        {
+            if (_settingProfile || value is null || !CanChangeProfile || SelectedProfile?.Id == value.Id) return;
+            _settingProfile = true;
+            try
+            {
+                _s.Queue.SetProfile(_selection.Select(r => r.Job.Id), value);
+                foreach (var row in _selection) row.Refresh();
+            }
+            finally { _settingProfile = false; }
+            Raise();
+        }
+    }
+
+    private void RefreshProfileChoice()
+    {
+        var kind = _selection.FirstOrDefault()?.Job.Kind ?? MediaKind.Video;
+        var choices = _s.Profiles.ForKind(kind).ToList();
+        // Only hand the drop-down a new list when it differs, and ignore what it echoes back while it refreshes.
+        if (!choices.SequenceEqual(ProfileChoices))
+        {
+            _settingProfile = true;
+            try { ProfileChoices = choices; Raise(nameof(ProfileChoices)); }
+            finally { _settingProfile = false; }
+        }
+        Raise(nameof(SelectedProfile));
+        Raise(nameof(CanChangeProfile));
+    }
 
     // ------------------------------------------------------------------ totals
 
@@ -217,6 +288,62 @@ public sealed class QueueViewModel : ObservableObject
 
         foreach (var name in new[] { nameof(StateText), nameof(TotalsText), nameof(OverallProgress), nameof(IsRunning), nameof(IsEmpty), nameof(WaitingCount), nameof(TabHeader), nameof(PauseLabel) })
             Raise(name);
+    }
+
+    // ------------------------------------------------------------------ swapping compressed copies in for originals
+
+    public int CleanupCount { get; private set; }
+    public string CleanupLabel => CleanupCount == 1 ? "Swap in 1 compressed copy…" : $"Swap in {CleanupCount:N0} compressed copies…";
+
+    public void RefreshCleanup()
+    {
+        CleanupCount = _s.History.PendingCleanup().Count;
+        Raise(nameof(CleanupCount));
+        Raise(nameof(CleanupLabel));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private async Task CleanupAsync()
+    {
+        var pending = _s.History.PendingCleanup();
+        if (pending.Count == 0) { RefreshCleanup(); return; }
+        var output = _s.Settings.Output.Clone();
+        if (output.Disposal == OriginalDisposal.BackupFolder && string.IsNullOrWhiteSpace(output.BackupFolder))
+        {
+            Inform("No backup folder", "Originals are set to move to a backup folder, but none has been chosen. Pick one in Settings.");
+            return;
+        }
+        string fate = output.Disposal switch
+        {
+            OriginalDisposal.RecycleBin => "moved to the Recycle Bin",
+            OriginalDisposal.BackupFolder => $"moved to {output.BackupFolder}",
+            _ => "PERMANENTLY DELETED",
+        };
+        long originals = pending.Sum(e => e.SourceSize), copies = pending.Sum(e => e.OutputSize);
+        string warning = output.Disposal == OriginalDisposal.DeletePermanently
+            ? "\n\nThis cannot be undone. Compression is lossy: the originals cannot be recreated from the compressed files." : "";
+        if (!Confirm("Swap in the compressed copies?",
+                $"{pending.Count:N0} original file(s) ({Format.Bytes(originals)}) still sit beside their compressed copies ({Format.Bytes(copies)}).\n\n" +
+                $"Each original will be {fate}, and its compressed copy renamed to take the original's name " +
+                $"(for example \"Movie.compressed.mkv\" becomes \"Movie.mkv\"). Subtitle files beside it are renamed to match.{warning}\n\nContinue?"))
+            return;
+
+        _cleaning = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var result = await Task.Run(() => OriginalCleanup.Run(pending, output, _s.History));
+            string text = $"{result.Cleaned:N0} original(s) removed and their compressed copies renamed, freeing {Format.Bytes(result.BytesFreed)}.";
+            if (result.Problems.Count > 0)
+                text += $"\n\n{result.Problems.Count:N0} could not be done:\n" + string.Join("\n", result.Problems.Take(12)) + (result.Problems.Count > 12 ? "\n…" : "");
+            Inform("Clean-up finished", text);
+        }
+        finally
+        {
+            _cleaning = false;
+            RefreshCleanup();
+            AfterCleanup?.Invoke();
+        }
     }
 
     public void TogglePause()

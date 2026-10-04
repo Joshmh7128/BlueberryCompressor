@@ -99,7 +99,7 @@
                 </ContextMenu>
             </DataGrid.ContextMenu>
             <DataGrid.Columns>
-                <DataGridTemplateColumn Header="Name" Width="*" MinWidth="260" SortMemberPath="Name" CanUserSort="True">
+                <DataGridTemplateColumn Header="Name" Width="*" MinWidth="200" SortMemberPath="Name" CanUserSort="True">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Grid Margin="{Binding Indent}" ToolTip="{Binding FullPath}">
@@ -127,7 +127,7 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTemplateColumn x:Name="SizeColumn" Header="Size" Width="172" SortMemberPath="Size" CanUserSort="True">
+                <DataGridTemplateColumn x:Name="SizeColumn" Header="Size" Width="150" SortMemberPath="Size" CanUserSort="True">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Grid ToolTip="{Binding SizeTip}">
@@ -153,6 +153,14 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
+                <DataGridTemplateColumn Header="After (est.)" Width="94" SortMemberPath="EstimatedSize" CanUserSort="True" HeaderStyle="{StaticResource GridHeaderRight}">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding EstimateText}" ToolTip="{Binding EstimateTip}" Style="{StaticResource CellTextRight}" Foreground="{StaticResource Good}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
                 <DataGridTextColumn Header="Length" Binding="{Binding DurationText}" Width="66" SortMemberPath="DurationSeconds"
                                     ElementStyle="{StaticResource CellTextRight}" HeaderStyle="{StaticResource GridHeaderRight}" />
                 <DataGridTextColumn Header="Video" Binding="{Binding VideoText}" Width="156" ElementStyle="{StaticResource CellTextMuted}" />
@@ -161,7 +169,7 @@
                 <DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateText}" Width="94" SortMemberPath="BitRate"
                                     ElementStyle="{StaticResource CellTextRight}" HeaderStyle="{StaticResource GridHeaderRight}" />
 
-                <DataGridTemplateColumn Header="Type" Width="128" SortMemberPath="TypeText" CanUserSort="True">
+                <DataGridTemplateColumn Header="Type" Width="120" SortMemberPath="TypeText" CanUserSort="True">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" ToolTip="{Binding TypeTip}"
@@ -178,7 +186,7 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="Profile" Binding="{Binding ProfileName}" Width="140" ElementStyle="{StaticResource CellText}" />
+                <DataGridTextColumn Header="Profile" Binding="{Binding ProfileName}" Width="128" ElementStyle="{StaticResource CellText}" />
 
                 <DataGridTemplateColumn Header="Status" Width="116" SortMemberPath="StatusText" CanUserSort="True">
                     <DataGridTemplateColumn.CellTemplate>
@@ -215,9 +223,9 @@
                     <TextBlock Text="{Binding SelectionSubtitle}" Style="{StaticResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,2,0,12" />
                     <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource VisibleWhen}}">
                         <TextBlock Text="CONTENT TYPE" Style="{StaticResource Caption}" />
-                        <ComboBox ItemsSource="{Binding TypeChoices}" SelectedItem="{Binding SelectedType}" HorizontalAlignment="Stretch" />
+                        <ComboBox x:Name="TypeCombo" ItemsSource="{Binding TypeChoices}" SelectedItem="{Binding SelectedType}" HorizontalAlignment="Stretch" />
                         <TextBlock Text="PROFILE" Style="{StaticResource Caption}" Margin="0,10,0,6" />
-                        <ComboBox ItemsSource="{Binding ProfileChoices}" SelectedItem="{Binding SelectedProfile}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" />
+                        <ComboBox x:Name="ProfileCombo" ItemsSource="{Binding ProfileChoices}" SelectedItem="{Binding SelectedProfile}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" />
                         <Button Style="{StaticResource GhostButton}" Command="{Binding ResetSelectionCommand}" Content="Back to automatic" HorizontalAlignment="Left"
                                 Foreground="{StaticResource Accent}" Padding="0,6" Margin="0,4,0,0" />
                     </StackPanel>
@@ -267,6 +275,11 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Visibility="{Binding CanMeasure, Converter={StaticResource VisibleWhen}}">
+                            <Button Command="{Binding MeasureCommand}" Content="Measure" Padding="12,4"
+                                    ToolTip="Test-encode a few short samples of this file with these exact settings for a much more reliable size" />
+                            <TextBlock Text="{Binding MeasureStatus}" Style="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        </StackPanel>
                         <Expander Header="ffmpeg command" Margin="0,6,0,0" Visibility="{Binding PlanCommand, Converter={StaticResource VisibleWhen}}">
                             <TextBox Text="{Binding PlanCommand, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" FontFamily="{StaticResource Mono}" FontSize="11"
                                      BorderThickness="0" Background="Transparent" Margin="0,6,0,0" />

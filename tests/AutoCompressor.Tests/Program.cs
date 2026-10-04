@@ -660,8 +660,68 @@ if (Run("Audio files"))
         T.Check("and is far smaller", job4.OutputSize < job4.SourceSize / 10, $"{job4.SourceSize} -> {job4.OutputSize}");
     }
 
+    var mp3Profile = profiles.Find(BuiltInProfiles.MusicMp3High)!;
+    var mp3Job = await RunJob(media.Wav(@"audio\Mp3\Artist\01 - Lossless.wav", 8), mp3Profile);
+    T.Equal("WAV to MP3 320 completes", JobStatus.Completed, mp3Job.Status);
+    if (mp3Job.Status == JobStatus.Completed)
+    {
+        var o = media.Probe(mp3Job.OutputPath!);
+        T.Check("output is a 320 kbps MP3", mp3Job.OutputPath!.EndsWith(".mp3") && o.AudioStreams.First().CodecName == "mp3" && Math.Abs(o.AudioStreams.First().BitRate - 320_000) < 5000,
+            $"{o.AudioStreams.First().CodecName} {o.AudioStreams.First().BitRate}");
+        T.Check("MP3 output is marked as compressed", o.CompressorTag is not null);
+    }
+    var mp3Skip = await RunJob(media.Mp3WithCover(@"audio\Mp3\Artist\02 - Lossy.mp3"), mp3Profile);
+    T.Check("the MP3 320 profile leaves lossy files alone", mp3Skip.Status == JobStatus.Skipped, mp3Skip.Message);
+    string flacSrc = media.Path("audio", "Mp3", "Artist", "03 - Cover.flac");
+    ProcessRunner.Capture(tools.Ffmpeg!, ["-hide_banner", "-loglevel", "error", "-y", "-i", media.Mp3WithCover(@"audio\Mp3\tmp\c.mp3"), "-map", "0:a", "-map", "0:v",
+        "-c:a", "flac", "-c:v", "copy", "-disposition:v", "attached_pic", flacSrc], TimeSpan.FromMinutes(1));
+    var flacToMp3 = await RunJob(flacSrc, mp3Profile);
+    T.Check("FLAC to MP3 320 keeps cover art and tags", flacToMp3.Status == JobStatus.Completed && media.Probe(flacToMp3.OutputPath!) is { CoverArt: not null } fp && fp.Tag("artist") == "Tester",
+        flacToMp3.Message);
+    foreach (var id in new[] { BuiltInProfiles.MusicAacHigh, BuiltInProfiles.MusicOpusHigh, BuiltInProfiles.MusicMp3 })
+    {
+        var j = await RunJob(media.Wav($@"audio\More\{id}\track.wav", 6), profiles.Find(id)!);
+        T.Check($"{profiles.Find(id)!.Name} encodes a lossless source", j.Status == JobStatus.Completed && j.OutputSize < j.SourceSize / 2, j.Message);
+    }
+    var flacProfile = profiles.Find(BuiltInProfiles.MusicFlac)!;
+    var toFlac = await RunJob(media.Wav(@"audio\Flac\track.wav", 6), flacProfile);
+    T.Check("the FLAC profile converts WAV losslessly", toFlac.Status == JobStatus.Completed && toFlac.OutputPath!.EndsWith(".flac"), toFlac.Message);
+    var lossyToFlac = await RunJob(media.Mp3WithCover(@"audio\Flac\lossy.mp3"), flacProfile);
+    T.Check("and refuses to inflate a lossy file", lossyToFlac.Status == JobStatus.Skipped, lossyToFlac.Message);
+
     var opusJob = await RunJob(media.Mp3WithCover(@"audio\Music\Other\song.mp3"), profiles.Find(BuiltInProfiles.MusicOpus)!);
     T.Check("Opus music profile works and notes the lost cover art", opusJob.Status == JobStatus.Completed && opusJob.Notes.Any(n => n.Contains("Cover art")), opusJob.Message);
+}
+
+// =====================================================================================
+if (Run("Swapping compressed copies in for originals"))
+{
+    string backup = media.Path("swap-backup", "x")[..^2];
+    var profile = profiles.Find(BuiltInProfiles.General)!.Clone();
+    profile.Speed = "veryfast"; profile.SkipBelowKbps = 0;
+    string avi = media.PlainVideo(@"swap\Show\Show.S01E01.avi", 3, "1280x720", "30", "mpeg4", "1", "-q:v 2");
+    string mkv = media.PlainVideo(@"swap\Show\Show.S01E02.mkv", 3);
+    File.Copy(media.Srt(), Path.ChangeExtension(mkv, ".en.srt"));
+    string touched = media.PlainVideo(@"swap\Show\Show.S01E03.mkv", 3);
+    var jobs = new List<QueueJob>();
+    foreach (var path in new[] { avi, mkv, touched }) jobs.Add(await RunJob(path, profile));
+    T.Check("three copies were made beside their originals", jobs.All(j => j.Status == JobStatus.Completed && j.OutputPath!.Contains(".compressed.")));
+    long mkvCopySize = new FileInfo(jobs[1].OutputPath!).Length;
+    File.SetLastWriteTimeUtc(touched, DateTime.UtcNow); // this original changed after it was compressed
+
+    var pending = history.PendingCleanup().Where(e => e.SourcePath.Contains(@"\swap\")).ToList();
+    T.Equal("all three are offered for clean-up", 3, pending.Count);
+    var result = OriginalCleanup.Run(pending, new OutputOptions { Disposal = OriginalDisposal.BackupFolder, BackupFolder = backup }, history);
+    T.Check("two were cleaned and the changed one was refused", result.Cleaned == 2 && result.Problems.Count == 1 && result.Problems[0].Contains("changed since"), string.Join(" | ", result.Problems));
+    T.Check("the .avi is gone and its copy is now Show.S01E01.mkv", !File.Exists(avi) && File.Exists(Path.ChangeExtension(avi, ".mkv")) && !File.Exists(jobs[0].OutputPath!));
+    T.Check("the .mkv copy took the original's exact name", File.Exists(mkv) && new FileInfo(mkv).Length == mkvCopySize && !File.Exists(jobs[1].OutputPath!));
+    T.Check("the renamed file is still recognised as compressed", media.Probe(mkv).CompressorTag is not null);
+    T.Check("the duplicate subtitle copy is gone and the original subtitle still matches",
+        File.Exists(Path.ChangeExtension(mkv, ".en.srt")) && !Directory.EnumerateFiles(Path.GetDirectoryName(mkv)!, "Show.S01E02.compressed*").Any());
+    T.Check("originals went to the backup folder", Directory.EnumerateFiles(backup, "*", SearchOption.AllDirectories).Select(Path.GetFileName).Order().SequenceEqual(["Show.S01E01.avi", "Show.S01E02.mkv"]));
+    T.Check("the changed original and its copy are both untouched", File.Exists(touched) && File.Exists(jobs[2].OutputPath!));
+    T.Equal("only the refused one is still pending", 1, history.PendingCleanup().Count(e => e.SourcePath.Contains(@"\swap\")));
+    T.Check("history survives a reload with the new paths", new History().PendingCleanup().Count(e => e.SourcePath.Contains(@"\swap\")) == 1);
 }
 
 // =====================================================================================

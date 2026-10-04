@@ -98,6 +98,20 @@ public sealed class History
         }
     }
 
+    /// <summary>Originals that still sit beside the compressed copy made from them.</summary>
+    public List<HistoryEntry> PendingCleanup()
+    {
+        lock (_gate)
+            return _entries.Where(e => e.Mode == OutputMode.NextToOriginal && File.Exists(e.SourcePath) && File.Exists(e.OutputPath)
+                                       && !string.Equals(e.SourcePath, e.OutputPath, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>Write the list out after entries were changed in place.</summary>
+    public void Save()
+    {
+        lock (_gate) JsonStore.Save(AppPaths.History, new Saved { Entries = [.. _entries] });
+    }
+
     public (int Count, long BytesSaved) Totals()
     {
         lock (_gate) return (_entries.Count, _entries.Sum(e => Math.Max(0, e.SourceSize - e.OutputSize)));

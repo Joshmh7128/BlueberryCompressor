@@ -8,7 +8,7 @@ public static class Format
 
     public static string Bytes(long bytes)
     {
-        if (bytes < 0) return "-" + Bytes(-bytes);
+        if (bytes < 0) return bytes == long.MinValue ? "?" : "-" + Bytes(-bytes); // MinValue cannot be negated
         double value = bytes;
         int unit = 0;
         while (value >= 1024 && unit < Units.Length - 1) { value /= 1024; unit++; }

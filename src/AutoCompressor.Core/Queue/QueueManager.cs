@@ -123,6 +123,30 @@ public sealed class QueueManager
         ListChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Give waiting jobs a different profile. Jobs that are running or already done are left as they are;
+    /// failed, skipped and cancelled ones take the profile and can then be retried. Returns how many changed.
+    /// </summary>
+    public int SetProfile(IEnumerable<string> ids, Profile profile)
+    {
+        var set = ids.ToHashSet();
+        List<QueueJob> changed;
+        lock (_gate)
+        {
+            changed = _jobs.Where(j => set.Contains(j.Id) && j.Kind == profile.Kind && j.Status is not (JobStatus.Running or JobStatus.Completed)).ToList();
+            foreach (var job in changed)
+            {
+                job.Profile = profile.Clone();
+                job.Summary = null;
+                job.Command = null;
+            }
+        }
+        if (changed.Count == 0) return 0;
+        Save();
+        foreach (var job in changed) JobChanged?.Invoke(job);
+        return changed.Count;
+    }
+
     /// <summary>Move the given jobs one place up or down, keeping their relative order.</summary>
     public void Move(IEnumerable<string> ids, int direction)
     {

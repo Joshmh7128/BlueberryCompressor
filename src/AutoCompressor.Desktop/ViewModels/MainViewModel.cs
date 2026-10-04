@@ -19,6 +19,8 @@ public sealed class MainViewModel : ObservableObject
         Queue = new QueueViewModel(services);
         Profiles = new ProfilesViewModel(services);
         Settings = new SettingsViewModel(services);
+        // Files were renamed on disk: have the library look again.
+        Queue.AfterCleanup = () => { if (Library.RescanCommand.CanExecute(null)) Library.RescanCommand.Execute(null); };
     }
 
     public int SelectedTab

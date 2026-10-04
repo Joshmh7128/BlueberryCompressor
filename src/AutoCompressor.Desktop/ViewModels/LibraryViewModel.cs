@@ -32,6 +32,10 @@ public sealed class LibraryViewModel : ObservableObject
     private readonly Dictionary<MediaFile, OnlineMetadata> _online = [];
     private CancellationTokenSource? _work;
     private HashSet<string> _queuedPaths = new(StringComparer.OrdinalIgnoreCase);
+    // Sizes found by test encodes, kept with the exact command they were measured for.
+    private readonly Dictionary<string, (string Command, long Bytes)> _measured = new(StringComparer.OrdinalIgnoreCase);
+    private bool _measuring;
+    private string _measureStatus = "";
 
     private bool _folderView;
     private string _filter = "";
@@ -63,6 +67,7 @@ public sealed class LibraryViewModel : ObservableObject
     public ICommand ShowInExplorerCommand { get; }
     public ICommand ExpandAllCommand { get; }
     public ICommand CollapseAllCommand { get; }
+    public ICommand MeasureCommand { get; }
 
     public LibraryViewModel(AppServices services)
     {
@@ -82,6 +87,8 @@ public sealed class LibraryViewModel : ObservableObject
         ShowInExplorerCommand = new RelayCommand(ShowInExplorer, () => _selection.Count > 0);
         ExpandAllCommand = new RelayCommand(() => SetAllExpanded(true), () => _folderView);
         CollapseAllCommand = new RelayCommand(() => SetAllExpanded(false), () => _folderView);
+
+        MeasureCommand = new RelayCommand(async () => await MeasureSelectedAsync(), () => CanMeasure && !_measuring);
 
         _s.ConfigurationChanged += () => _ui.InvokeAsync(OnConfigurationChanged);
         _s.Queue.ListChanged += () => _ui.InvokeAsync(SyncQueueStates);
@@ -397,6 +404,7 @@ public sealed class LibraryViewModel : ObservableObject
         else if (_s.History.FindCopy(file.Path, file.Size, file.ModifiedUtc) is { } copy)
             row.SetState(RowState.HasCopy, "Compressed copy: " + copy.OutputPath);
         else if (row.State is RowState.Probing or RowState.Queued) row.SetState(RowState.Ready);
+        UpdateEstimate(row); // again, now that the row's state is known
         row.Refresh();
     }
 
@@ -413,15 +421,95 @@ public sealed class LibraryViewModel : ObservableObject
             row.ProfileIsManual = false;
             row.Profile = _s.Profiles.ForType(file.Classification.Type, _s.Settings);
         }
+        UpdateEstimate(row);
+    }
+
+    private EncodePlan? BuildPlan(LibraryRow row)
+    {
+        var file = row.File!;
+        if (file.Probe is null || row.Profile is null) return null;
+        string extension = CommandBuilder.ExtensionFor(row.Profile, file.Probe);
+        return CommandBuilder.Build(new EncodeRequest
+        {
+            File = file, Probe = file.Probe, Profile = row.Profile, Settings = _s.Settings, Encoders = _s.Encoders,
+            OutputPath = Path.Combine(file.Directory, Path.GetFileNameWithoutExtension(file.Path) + "." + extension),
+        });
+    }
+
+    /// <summary>Work out what the file would shrink to with its current profile and settings.</summary>
+    private void UpdateEstimate(LibraryRow row)
+    {
+        var file = row.File!;
+        file.EstimatedSize = null;
+        file.EstimateMeasured = false;
+        if (row.State is RowState.Compressed or RowState.HasCopy or RowState.Done or RowState.Unreadable && !_s.Settings.ReprocessCompressed) return;
+        var plan = BuildPlan(row);
+        if (plan is null || plan.Skip) return;
+        if (_measured.TryGetValue(file.Path, out var m) && m.Command == plan.Preview())
+        {
+            file.EstimatedSize = m.Bytes;
+            file.EstimateMeasured = true;
+            return;
+        }
+        var estimate = SizeEstimator.Estimate(file, file.Probe!, row.Profile!, plan);
+        // An estimate that misses the minimum saving means the job would keep the original anyway.
+        if (estimate is { } bytes && bytes <= file.Size * (1 - _s.Settings.Output.MinSavingsPercent / 100.0)) file.EstimatedSize = bytes;
+    }
+
+    public bool CanMeasure => _selection.Count == 1 && _selection[0] is { IsFile: true } row && row.File!.Probe is not null && !PlanIsSkip && _s.Tools.Available;
+    public string MeasureStatus { get => _measureStatus; private set => Set(ref _measureStatus, value); }
+
+    private async Task MeasureSelectedAsync()
+    {
+        if (!CanMeasure) return;
+        var row = _selection[0];
+        var file = row.File!;
+        var plan = BuildPlan(row);
+        if (plan is null || plan.Skip) return;
+        _measuring = true;
+        MeasureStatus = "Test-encoding samples…";
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var tools = _s.Tools;
+            var probe = file.Probe!;
+            var result = await Task.Run(() => SizeEstimator.MeasureAsync(tools, probe, plan));
+            if (result is null) MeasureStatus = "The test encode failed; the rough estimate stands.";
+            else
+            {
+                _measured[file.Path] = (plan.Preview(), Math.Min(result.Bytes, file.Size));
+                MeasureStatus = "";
+                UpdateEstimate(row);
+                row.Refresh();
+                RefreshFolderRows();
+                UpdateSummary();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MeasureStatus = "The test encode failed: " + ex.Message;
+        }
+        finally
+        {
+            _measuring = false;
+            if (_selection.Count == 1 && ReferenceEquals(_selection[0], row)) UpdateSelectionDetails();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private void RefreshFolderRows()
+    {
+        foreach (var row in Rows) if (row.IsFolder) row.Refresh();
     }
 
     private void OnConfigurationChanged()
     {
         foreach (var row in _fileRows.Values) AssignProfile(row);
+        foreach (var row in Rows) row.Refresh();
+        UpdateSummary();
         Raise(nameof(OutputMode));
         Raise(nameof(EncoderPolicy));
         Raise(nameof(ToolsMissing));
-        Raise(nameof(ProfileChoices));
         UpdateSelectionDetails();
     }
 
@@ -473,6 +561,7 @@ public sealed class LibraryViewModel : ObservableObject
             }
         }
         Rows.ReplaceAll(visible);
+        RefreshFolderRows();
         UpdateSummary();
     }
 
@@ -559,6 +648,8 @@ public sealed class LibraryViewModel : ObservableObject
         if (Filtering) text += $" · {shown:N0} shown ({Format.Bytes(_files.Where(Matches).Sum(f => f.Size))})";
         int compressed = _fileRows.Values.Count(r => r.State is RowState.Compressed or RowState.HasCopy or RowState.Done);
         if (compressed > 0) text += $" · {compressed:N0} already compressed";
+        long after = _files.Sum(f => f.EstimatedSize ?? f.Size);
+        if (after < total) text += $" · ~{Format.Bytes(after)} after compression";
         Summary = text;
     }
 
@@ -580,7 +671,8 @@ public sealed class LibraryViewModel : ObservableObject
     public string SelectionTitle { get; private set; } = "Nothing selected";
     public string SelectionSubtitle { get; private set; } = "Select files or folders to see how they will be handled.";
     public IReadOnlyList<TypeOption> TypeChoices { get; private set; } = [];
-    public IReadOnlyList<Profile> ProfileChoices => _s.Profiles.ForKind(SelectionKind).ToList();
+    public IReadOnlyList<Profile> ProfileChoices { get; private set; } = [];
+    private bool _applyingChoice;
     public IReadOnlyList<string> Reasons { get; private set; } = [];
     public string ReasonsCaption { get; private set; } = "WHY THIS TYPE";
     public IReadOnlyList<string> StreamLines { get; private set; } = [];
@@ -598,16 +690,25 @@ public sealed class LibraryViewModel : ObservableObject
         }
         set
         {
-            if (_updatingSelection || value?.Type is not { } type) return;
-            foreach (var file in SelectedFiles().Where(f => f.Kind == ContentTypes.KindOf(type)))
-            {
-                file.Classification = new Classification { Type = type, Confidence = 1, IsManual = true, Reasons = ["Set by you"] };
-                Override(file.Path).Type = type;
-                if (_fileRows.TryGetValue(file.Path, out var row)) { AssignProfile(row); row.Refresh(); }
-            }
-            _s.SaveOverrides();
-            UpdateSelectionDetails();
+            if (_updatingSelection || _applyingChoice || value?.Type is not { } type || SelectedType?.Type == type) return;
+            _applyingChoice = true;
+            try { ApplyType(type); }
+            finally { _applyingChoice = false; }
         }
+    }
+
+    private void ApplyType(ContentType type)
+    {
+        foreach (var file in SelectedFiles().Where(f => f.Kind == ContentTypes.KindOf(type)))
+        {
+            file.Classification = new Classification { Type = type, Confidence = 1, IsManual = true, Reasons = ["Set by you"] };
+            Override(file.Path).Type = type;
+            if (_fileRows.TryGetValue(file.Path, out var row)) { AssignProfile(row); row.Refresh(); }
+        }
+        _s.SaveOverrides();
+        RefreshFolderRows();
+        UpdateSummary();
+        UpdateSelectionDetails();
     }
 
     public Profile? SelectedProfile
@@ -619,15 +720,24 @@ public sealed class LibraryViewModel : ObservableObject
         }
         set
         {
-            if (_updatingSelection || value is null) return;
-            foreach (var file in SelectedFiles().Where(f => f.Kind == value.Kind))
-            {
-                Override(file.Path).ProfileId = value.Id;
-                if (_fileRows.TryGetValue(file.Path, out var row)) { AssignProfile(row); row.Refresh(); }
-            }
-            _s.SaveOverrides();
-            UpdateSelectionDetails();
+            if (_updatingSelection || _applyingChoice || value is null || ReferenceEquals(SelectedProfile, value)) return;
+            _applyingChoice = true;
+            try { ApplyProfile(value); }
+            finally { _applyingChoice = false; }
         }
+    }
+
+    private void ApplyProfile(Profile value)
+    {
+        foreach (var file in SelectedFiles().Where(f => f.Kind == value.Kind))
+        {
+            Override(file.Path).ProfileId = value.Id;
+            if (_fileRows.TryGetValue(file.Path, out var row)) { AssignProfile(row); row.Refresh(); }
+        }
+        _s.SaveOverrides();
+        RefreshFolderRows();
+        UpdateSummary();
+        UpdateSelectionDetails();
     }
 
     private FileOverride Override(string path)
@@ -650,13 +760,19 @@ public sealed class LibraryViewModel : ObservableObject
 
     private void UpdateSelectionDetails()
     {
+        var choicesChanged = new List<string>();
         _updatingSelection = true;
         try
         {
             var files = SelectedFiles();
             var kind = SelectionKind;
-            TypeChoices = (kind == MediaKind.Audio ? ContentTypes.Audio : ContentTypes.Video)
+            // Hand the drop-downs a new list only when its contents really differ. Replacing the list under a
+            // drop-down makes it push its selection back into the setter, which would land here again.
+            var types = (kind == MediaKind.Audio ? ContentTypes.Audio : ContentTypes.Video)
                 .Select(t => new TypeOption(ContentTypes.DisplayName(t), t)).ToList();
+            if (!types.SequenceEqual(TypeChoices)) { TypeChoices = types; choicesChanged.Add(nameof(TypeChoices)); }
+            var profileChoices = _s.Profiles.ForKind(kind).ToList();
+            if (!profileChoices.SequenceEqual(ProfileChoices)) { ProfileChoices = profileChoices; choicesChanged.Add(nameof(ProfileChoices)); }
 
             var first = _selection.FirstOrDefault();
             if (first is null)
@@ -678,11 +794,15 @@ public sealed class LibraryViewModel : ObservableObject
         finally { _updatingSelection = false; }
 
         // Lists before the values chosen from them, or the combo boxes briefly lose their selection.
+        bool wasApplying = _applyingChoice;
+        _applyingChoice = true; // anything the drop-downs push back while they refresh is an echo, not a choice
+        try { foreach (var name in choicesChanged) Raise(name); }
+        finally { _applyingChoice = wasApplying; }
         foreach (var name in new[]
                  {
-                     nameof(HasSelection), nameof(SelectionTitle), nameof(SelectionSubtitle), nameof(TypeChoices), nameof(ProfileChoices),
+                     nameof(HasSelection), nameof(SelectionTitle), nameof(SelectionSubtitle),
                      nameof(SelectedType), nameof(SelectedProfile), nameof(Reasons), nameof(ReasonsCaption), nameof(StreamLines), nameof(PlanSummary),
-                     nameof(PlanNotes), nameof(PlanCommand), nameof(PlanIsSkip),
+                     nameof(PlanNotes), nameof(PlanCommand), nameof(PlanIsSkip), nameof(CanMeasure),
                  })
             Raise(name);
     }
@@ -699,7 +819,7 @@ public sealed class LibraryViewModel : ObservableObject
             .ToList();
 
         int compress = 0, unread = 0, leftOut = 0;
-        long compressBytes = 0;
+        long compressBytes = 0, afterBytes = 0;
         var skipReasons = new Dictionary<string, int>();
         foreach (var file in files.Take(5000))
         {
@@ -710,14 +830,15 @@ public sealed class LibraryViewModel : ObservableObject
             {
                 File = file, Probe = file.Probe, Profile = row.Profile, Settings = _s.Settings, Encoders = _s.Encoders, OutputPath = file.Path,
             });
-            if (!plan.Skip) { compress++; compressBytes += file.Size; continue; }
+            if (!plan.Skip) { compress++; compressBytes += file.Size; afterBytes += file.EstimatedSize ?? file.Size; continue; }
             // "Already small: HEVC at 1.2 Mbps (…)" and friends: group by the part before the detail.
             string reason = plan.SkipReason!.Split(':', '(')[0].Trim();
             skipReasons[reason] = skipReasons.GetValueOrDefault(reason) + 1;
         }
 
         PlanSummary = compress > 0
-            ? $"{compress:N0} file{(compress == 1 ? "" : "s")} ({Format.Bytes(compressBytes)}) would be compressed."
+            ? $"{compress:N0} file{(compress == 1 ? "" : "s")} ({Format.Bytes(compressBytes)}) would be compressed" +
+              (afterBytes < compressBytes ? $" to roughly {Format.Bytes(afterBytes)}, saving about {Format.Bytes(compressBytes - afterBytes)}." : ".")
             : "Nothing here would be compressed.";
         var notes = new List<string>();
         if (leftOut > 0) notes.Add($"{leftOut:N0} already compressed: left out.");
@@ -773,6 +894,13 @@ public sealed class LibraryViewModel : ObservableObject
         });
         PlanIsSkip = plan.Skip;
         PlanSummary = plan.Skip ? "Will be skipped: " + plan.SkipReason : $"{row.Profile.Name}{(row.ProfileIsManual ? " (chosen by you)" : "")} → .{extension}\n{plan.Summary}";
+        if (!plan.Skip)
+        {
+            PlanSummary += file.EstimatedSize is { } estimate
+                ? $"\n{(file.EstimateMeasured ? "Measured size" : "Estimated size")}: {(file.EstimateMeasured ? "" : "~")}{Format.Bytes(estimate)} " +
+                  $"({(1 - (double)estimate / Math.Max(file.Size, 1)) * 100:0}% smaller){(file.EstimateMeasured ? ", from test encodes" : ", rough estimate")}"
+                : "\nEstimated size: little or no saving expected; the original would probably be kept";
+        }
         PlanNotes = plan.Notes;
         PlanCommand = plan.Skip ? "" : plan.Preview();
     }
@@ -930,6 +1058,7 @@ public sealed class LibraryViewModel : ObservableObject
 
     private void OnJobFinished(QueueJob job)
     {
+        _queuedPaths.Remove(job.SourcePath); // or a later rescan would still show it as queued
         if (!_fileRows.TryGetValue(job.SourcePath, out var row)) return;
         var file = row.File!;
         switch (job.Status)
@@ -965,7 +1094,9 @@ public sealed class LibraryViewModel : ObservableObject
                 row.SetState(RowState.Ready);
                 break;
         }
+        UpdateEstimate(row);
         row.Refresh();
+        RefreshFolderRows();
         UpdateSummary();
     }
 
@@ -987,11 +1118,11 @@ public sealed class LibraryViewModel : ObservableObject
         static string Q(string? text) => '"' + (text ?? "").Replace("\"", "\"\"") + '"';
         var files = _files.Where(Matches).OrderByDescending(f => f.Size).ToList();
         using var writer = new StreamWriter(path, false, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-        writer.WriteLine("Path,Size (bytes),Size,Length,Video,Audio,Subtitles,Bitrate (kbps),Type,Confidence,Profile,Status");
+        writer.WriteLine("Path,Size (bytes),Estimated after (bytes),Size,Length,Video,Audio,Subtitles,Bitrate (kbps),Type,Confidence,Profile,Status");
         foreach (var file in files)
         {
             var row = _fileRows[file.Path];
-            writer.WriteLine(string.Join(',', Q(file.Path), file.Size, Q(row.SizeText), Q(row.DurationText), Q(row.VideoText), Q(row.AudioText),
+            writer.WriteLine(string.Join(',', Q(file.Path), file.Size, file.EstimatedSize?.ToString() ?? "", Q(row.SizeText), Q(row.DurationText), Q(row.VideoText), Q(row.AudioText),
                 Q(row.SubsText), row.BitRate / 1000, Q(row.TypeText), Q(row.ConfidenceText), Q(row.ProfileName), Q(row.StatusText)));
         }
         Notice = $"Exported {files.Count:N0} files to {path}";

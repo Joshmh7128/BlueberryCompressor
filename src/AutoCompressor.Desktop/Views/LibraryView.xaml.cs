@@ -104,6 +104,25 @@ public partial class LibraryView : UserControl
         if (_vm is not null) _vm.Notice = "";
     }
 
+    /// <summary>Pick from the detail panel's drop-downs the way a user would (used by the UI self-test).</summary>
+    public Task ChooseProfile(object profile) => ClickChoice(ProfileCombo, profile);
+    public Task ChooseType(object type) => ClickChoice(TypeCombo, type);
+
+    private async Task ClickChoice(ComboBox combo, object choice)
+    {
+        // Open the list and click the entry: the same route a mouse click takes.
+        combo.IsDropDownOpen = true;
+        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        if (combo.ItemContainerGenerator.ContainerFromItem(choice) is ComboBoxItem item)
+        {
+            var device = Mouse.PrimaryDevice;
+            item.RaiseEvent(new MouseButtonEventArgs(device, Environment.TickCount, MouseButton.Left) { RoutedEvent = MouseLeftButtonDownEvent });
+            item.RaiseEvent(new MouseButtonEventArgs(device, Environment.TickCount, MouseButton.Left) { RoutedEvent = MouseLeftButtonUpEvent });
+        }
+        else combo.SelectedItem = choice;
+        combo.IsDropDownOpen = false;
+    }
+
     /// <summary>Select a row by position (used when capturing screenshots).</summary>
     public void SelectRow(int index)
     {
